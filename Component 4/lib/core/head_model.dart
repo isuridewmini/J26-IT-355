@@ -290,4 +290,47 @@ class _BiGruNet {
     ];
   }
 
-  
+  /// One direction of the GRU (PyTorch gate order r, z, n); writes its hidden
+  /// states into [out] columns [col, col + hidden).
+  void _gru(List<Float64List> x, List<Float64List> out, int col, int hidden, int inDim,
+      String suffix, bool reverse) {
+    final wih = w['gru.weight_ih_l0$suffix']!, whh = w['gru.weight_hh_l0$suffix']!;
+    final bih = w['gru.bias_ih_l0$suffix']!, bhh = w['gru.bias_hh_l0$suffix']!;
+    final t = x.length;
+    var hPrev = Float64List(hidden);
+    final gi = Float64List(3 * hidden);
+    final gh = Float64List(3 * hidden);
+    for (var step = 0; step < t; step++) {
+      final i = reverse ? t - 1 - step : step;
+      final xi = x[i];
+      for (var o = 0; o < 3 * hidden; o++) {
+        var s = bih[o];
+        final base = o * inDim;
+        for (var j = 0; j < inDim; j++) {
+          s += wih[base + j] * xi[j];
+        }
+        gi[o] = s;
+        var r = bhh[o];
+        final hb = o * hidden;
+        for (var j = 0; j < hidden; j++) {
+          r += whh[hb + j] * hPrev[j];
+        }
+        gh[o] = r;
+      }
+      final hNew = Float64List(hidden);
+      for (var j = 0; j < hidden; j++) {
+        final r = sigmoid(gi[j] + gh[j]);
+        final zg = sigmoid(gi[hidden + j] + gh[hidden + j]);
+        final n = _tanh(gi[2 * hidden + j] + r * gh[2 * hidden + j]);
+        hNew[j] = (1 - zg) * n + zg * hPrev[j];
+        out[i][col + j] = hNew[j];
+      }
+      hPrev = hNew;
+    }
+  }
+
+  static double _tanh(double x) {
+    final e = math.exp(2 * x);
+    return x > 20 ? 1.0 : (x < -20 ? -1.0 : (e - 1) / (e + 1));
+  }
+}
